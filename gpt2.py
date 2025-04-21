@@ -82,14 +82,31 @@ class GPT2(nn.Module):
         super(GPT2, self).__init__()
         self.config = config
         # definiamo i blocchi che ci servono
-        self.transformer = nn.Transformer( #il main module è il modulo transformer rappresentato come dizionario, con i sottomoduli accessibili con le chiavi
+        self.transformer = nn.ModuleDict(dict( #il main module è il modulo transformer rappresentato come dizionario, con i sottomoduli accessibili con le chiavi
             wte = nn.Embedding(config.vocab_size, config.n_embd), #token embedding
             wpe = nn.Embedding(config.block_size, config.n_embd), #position embedding
             #we have 12 layers of transformer blocks, so we have a list accessible by integers
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]), #block still to be defined in a recursive way
             ln_f = nn.LayerNorm(config.n_embd),
-        )
-        self.ln_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # final classifier to predict the next word in the sequence
+        ))
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False) # final classifier to predict the next word in the sequence
 
-    def forward(self, x):
-        return x
+    def forward(self, idx, targets=None):
+        # idx is of shape (B, T)
+        B, T = idx.size()
+        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+        # forward the token and posisition embeddings
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape (T)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (T, n_embd)
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (B, T, n_embd)
+        x = tok_emb + pos_emb
+        # forward the blocks of the transformer
+        for block in self.transformer.h:
+            x = block(x)
+        # forward the final layernorm and the classifier
+        x = self.transformer.ln_f(x)
+        logits = self.lm_head(x) # (B, T, vocab_size)
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
