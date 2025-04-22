@@ -23,7 +23,7 @@ x = torch.tensor([encode("hello my nam")])
 logits = model(x)
 
 # Predizione prossimo char
-next_id = torch.argmax(logits[0, -1]).item()
+next_id = torch.argmax(logits[0][0, -1]).item()
 print("Next char:", itos[next_id])
 
 Requisiti
